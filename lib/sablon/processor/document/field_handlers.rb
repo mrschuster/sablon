@@ -30,13 +30,13 @@ module Sablon
       # Handles simple text insertion
       class InsertionHandler < FieldHandler
         def initialize
-          super(/^=/)
+          super(/^[\#=]/)
         end
 
         def build_statement(_constructor, field, options = {})
           return unless options[:allow_insertion]
           #
-          expr = Expression.parse(field.expression.gsub(/^=/, ''))
+          expr = Expression.parse(field.expression.gsub(/^[\#=]/, ''))
           Statement::Insertion.new(expr, field)
         end
       end

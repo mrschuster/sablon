@@ -3,7 +3,8 @@ module Sablon
     class MailMerge
       class MergeField
         attr_accessor :block_reference_count
-        KEY_PATTERN = /^\s*MERGEFIELD\s+([^ ]+)\s+\\\*\s+MERGEFORMAT\s*$/
+        KEY_PATTERN_SIMPLE = /^\s*MERGEFIELD\s+([^ \"]+)/
+        KEY_PATTERN_QUOTED = /^\s*MERGEFIELD\s+\"(.+)\"/
 
         def initialize
           @block_reference_count = 0
@@ -14,7 +15,11 @@ module Sablon
         end
 
         def expression
-          $1 if @raw_expression =~ KEY_PATTERN
+          if @raw_expression =~ KEY_PATTERN_SIMPLE
+            $1
+          elsif @raw_expression =~ KEY_PATTERN_QUOTED
+            $1.gsub('\\"','"')
+          end
         end
 
         private
