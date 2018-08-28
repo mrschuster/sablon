@@ -52,20 +52,78 @@ module Sablon
     private
 
     def render(context, properties = {})
-      # initialize environment
+      # If just one hash is given, make an one-element array out of it.
+      unless context.kind_of?(Array)
+        context = [context]
+      end
+
+      # initialize DOM
       @document = Sablon::DOM::Model.new(Zip::File.open(@path))
-      env = Sablon::Environment.new(self, context)
+      
+      # Copy original template document.
+      word_doc = @document.zip_contents["word/document.xml"]
+      orig_content = word_doc.dup
+      
+      # Process whole docx with first (or only) context.
+      env = Sablon::Environment.new(self, context.shift)
       env.section_properties = properties
-      #
-      # process files
       process(env)
-      #
+
+      # Process document.xml for further context hashs.
+      @document.current_entry = "word/document.xml"
+      context.each do |curr_context|
+        # Duplicate document.xml.
+        curr_content = orig_content.dup
+        
+        # Process document.xml under current context.
+        env = Sablon::Environment.new(self, curr_context)
+        env.section_properties = properties
+        process_document(curr_content, env)
+
+        # Append current document body to word_doc.        
+        move_section_to_last_paragraph(word_doc)
+        curr_children = curr_content.at_xpath(".//w:body").children
+        word_doc.at_xpath(".//w:body") << curr_children
+      end
+      
+      # Repair some weird issues.
+      repair_document(word_doc)
+
       Zip::OutputStream.write_buffer(StringIO.new) do |out|
         generate_output_file(out, @document.zip_contents)
       end
     end
+    
+    # Move the sectPr Node from body to the last paragraph.
+    # Then, further nodes and another sectPr can be added.
+    # See also http://officeopenxml.com/WPsection.php.
+    def move_section_to_last_paragraph(word_doc)
+      body = word_doc.at_xpath(".//w:body")
+      sec=body.at_xpath("./w:sectPr")
+      sec.remove
+      secpar = Nokogiri::XML::Node.new("w:p", word_doc) do |node|
+        node << Nokogiri::XML::Node.new("w:pPr", word_doc) do |wpr|
+          wpr << sec
+        end
+      end
+      body << secpar
+    end
+    
+    # Repair some possible issues of the XML file.
+    def repair_document(word_doc)
+      # In Libre Office files we observed a missing "r:".
+      ["header", "footer"].each do |refs|
+        word_doc.xpath(".//w:#{refs}Reference").each do |ref|
+          ref_id = ref.attributes["id"]
+          if ref_id
+            ref.remove_attribute("id")
+            ref["r:id"] = ref_id
+          end
+        end
+      end
+    end
 
-    # Processes all of te entries searching for ones that match the pattern.
+    # Processes all of the entries searching for ones that match the pattern.
     # The hash is converted into an array first to avoid any possible
     # modification during iteration errors (i.e. creation of a new rels file).
     def process(env)
@@ -74,6 +132,12 @@ module Sablon
         processors = Template.get_processors(entry_name)
         processors.each { |processor| processor.process(content, env) }
       end
+    end
+    
+    # Process document.xml only. Content is provided as parameter.
+    def process_document(content, env)
+      processors = Template.get_processors("word/document.xml")
+      processors.each { |processor| processor.process(content, env) }
     end
 
     # IMPORTANT: Open Office does not ignore whitespace around tags.
