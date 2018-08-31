@@ -49,9 +49,8 @@ module Sablon
       render(context, properties).string
     end
 
-    private
-
-    def render(context, properties = {})
+    # Render xml data only.
+    def render_xml(context, properties = {})
       # If just one hash is given, make an one-element array out of it.
       unless context.kind_of?(Array)
         context = [context]
@@ -80,20 +79,38 @@ module Sablon
         env.section_properties = properties
         process_document(curr_content, env)
 
-        # Append current document body to word_doc.        
-        move_section_to_last_paragraph(word_doc)
-        curr_children = curr_content.at_xpath(".//w:body").children
-        word_doc.at_xpath(".//w:body") << curr_children
+        # Append current document body to word_doc.
+        append_body(curr_content.at_xpath(".//w:body"))
       end
       
       # Repair some weird issues.
       repair_document(word_doc)
+    end
+    
+    def append_template(templ)
+      templ_word_doc = templ.document.zip_contents["word/document.xml"]
+      # Append body of given template to word_doc.
+      append_body(templ_word_doc.at_xpath(".//w:body"))
+    end
+  
+    private
+
+    def render(context, properties = {})
+      render_xml(context, properties = {}) unless context.nil?
 
       Zip::OutputStream.write_buffer(StringIO.new) do |out|
         generate_output_file(out, @document.zip_contents)
       end
     end
-    
+
+    # Append body of XML document to this file.
+    def append_body(xml_body)
+      word_doc = @document.zip_contents["word/document.xml"]
+      move_section_to_last_paragraph(word_doc)
+      new_children = xml_body.children
+      word_doc.at_xpath(".//w:body") << new_children
+    end
+
     # Move the sectPr Node from body to the last paragraph.
     # Then, further nodes and another sectPr can be added.
     # See also http://officeopenxml.com/WPsection.php.
